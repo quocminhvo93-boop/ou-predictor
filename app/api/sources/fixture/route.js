@@ -54,15 +54,18 @@ export async function GET(req) {
     const dateISO = searchParams.get("date"); // YYYY-MM-DD
     const season  = searchParams.get("season") || inferSeason(dateISO);
 
-    if (!home || !away) return Response.json({ error: "home & away required" }, { status: 400 });
+    if (!home || !away)
+      return Response.json({ error: "home & away required" }, { status: 400 });
 
     const [homeId, awayId] = await Promise.all([teamIdByName(home), teamIdByName(away)]);
-
     let leagueId = null;
     if (country && league) leagueId = await leagueIdByName(country, league, season);
 
     const [h, a] = leagueId
-      ? await Promise.all([lastNStatsInLeague(homeId, leagueId, season, 10), lastNStatsInLeague(awayId, leagueId, season, 10)])
+      ? await Promise.all([
+          lastNStatsInLeague(homeId, leagueId, season, 10),
+          lastNStatsInLeague(awayId, leagueId, season, 10)
+        ])
       : [{ gf: 1.2, ga: 1.2, count: 0 }, { gf: 1.2, ga: 1.2, count: 0 }];
 
     const leagueAvg = 1.30;
