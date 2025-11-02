@@ -1,31 +1,74 @@
-// app/api/fixtures24h/route.js (next + debug errors)
-const LEAGUES_EU = [
-  { country: "England", league: "Premier League",   sport: "soccer_epl" },
-  { country: "England", league: "Championship",     sport: null },
-  { country: "England", league: "League One",       sport: null },
-  { country: "Scotland", league: "Premiership",     sport: "soccer_scotland_premiership" },
-  { country: "Spain",    league: "La Liga",         sport: "soccer_spain_la_liga" },
-  { country: "Spain",    league: "La Liga 2",       sport: null },
-  { country: "Italy",    league: "Serie A",         sport: "soccer_italy_serie_a" },
-  { country: "Italy",    league: "Serie B",         sport: null },
-  { country: "Germany",  league: "Bundesliga",      sport: "soccer_germany_bundesliga" },
-  { country: "Germany",  league: "2. Bundesliga",   sport: null },
-  { country: "Germany",  league: "3. Liga",         sport: null },
-  { country: "France",   league: "Ligue 1",         sport: "soccer_france_ligue_one" },
-  { country: "France",   league: "Ligue 2",         sport: null },
-  { country: "Netherlands", league: "Eredivisie",      sport: "soccer_netherlands_eredivisie" },
-  { country: "Netherlands", league: "Eerste Divisie",  sport: null },
-  { country: "Portugal", league: "Primeira Liga",   sport: "soccer_portugal_primeira_liga" },
-  { country: "Portugal", league: "Liga Portugal 2", sport: null },
-  { country: "Turkey",   league: "Super Lig",       sport: "soccer_turkey_super_lig" },
-  { country: "Austria",  league: "Bundesliga",      sport: "soccer_austria_bundesliga" },
-  { country: "Switzerland", league: "Super League",   sport: "soccer_switzerland_superleague" },
-  { country: "Switzerland", league: "Challenge League", sport: null },
-  { country: "Sweden",   league: "Allsvenskan",     sport: "soccer_sweden_allsvenskan" },
-  { country: "Sweden",   league: "Superettan",      sport: null },
-  { country: "Hungary",  league: "NB I",            sport: null },
-  { country: "Bulgaria", league: "First League",    sport: null },
-];
+// app/api/fixtures24h/route.js
+// Lấy các trận 0..hours tới (mặc định 24h) cho EU tier 1–3.
+// Ưu tiên dùng LEAGUE_ID_MAP (ổn định), nếu không có thì fallback search.
+
+const LEAGUE_ID_MAP = {
+  // England
+  "England|Premier League": 39,
+  "England|Championship": 40,
+  "England|League One": 41,
+  // Scotland
+  "Scotland|Premiership": 179,
+  "Scotland|Championship": 180,
+  "Scotland|League One": 181,
+  // Spain
+  "Spain|La Liga": 140,
+  "Spain|La Liga 2": 141,
+  // Italy
+  "Italy|Serie A": 135,
+  "Italy|Serie B": 136,
+  // Germany
+  "Germany|Bundesliga": 78,
+  "Germany|2. Bundesliga": 79,
+  "Germany|3. Liga": 195,
+  // France
+  "France|Ligue 1": 61,
+  "France|Ligue 2": 62,
+  // Netherlands
+  "Netherlands|Eredivisie": 88,
+  "Netherlands|Eerste Divisie": 90,
+  // Portugal
+  "Portugal|Primeira Liga": 94,
+  "Portugal|Liga Portugal 2": 95,
+  // Turkey
+  "Turkey|Super Lig": 203,
+  // Austria
+  "Austria|Bundesliga": 218,
+  "Austria|2. Liga": 219,
+  // Switzerland
+  "Switzerland|Super League": 207,
+  "Switzerland|Challenge League": 208,
+  // Sweden
+  "Sweden|Allsvenskan": 113,
+  "Sweden|Superettan": 114,
+  // Hungary / Bulgaria (có thể khác tuỳ mùa; nếu sai sẽ fallback)
+  "Hungary|NB I": 271,
+  "Bulgaria|First League": 157,
+};
+
+const LEAGUES_EU = Object.keys(LEAGUE_ID_MAP).map(k => {
+  const [country, league] = k.split("|");
+  return { country, league, sport: sportKey(country, league) };
+});
+
+// sport key cho The Odds API (giải có feed totals)
+function sportKey(country, league) {
+  const m = {
+    "England|Premier League": "soccer_epl",
+    "Spain|La Liga": "soccer_spain_la_liga",
+    "Italy|Serie A": "soccer_italy_serie_a",
+    "Germany|Bundesliga": "soccer_germany_bundesliga",
+    "France|Ligue 1": "soccer_france_ligue_one",
+    "Netherlands|Eredivisie": "soccer_netherlands_eredivisie",
+    "Portugal|Primeira Liga": "soccer_portugal_primeira_liga",
+    "Turkey|Super Lig": "soccer_turkey_super_lig",
+    "Scotland|Premiership": "soccer_scotland_premiership",
+    "Austria|Bundesliga": "soccer_austria_bundesliga",
+    "Switzerland|Super League": "soccer_switzerland_superleague",
+    "Sweden|Allsvenskan": "soccer_sweden_allsvenskan",
+  };
+  return m[`${country}|${league}`] || null;
+}
 
 async function afGet(path, params = {}) {
   const base = "https://v3.football.api-sports.io";
@@ -36,12 +79,27 @@ async function afGet(path, params = {}) {
   if (!r.ok) throw new Error(`AF ${r.status}: ${JSON.stringify(j)}`);
   return j;
 }
+
 async function resolveLeagueId(country, league) {
-  let js = await afGet("/leagues", { country, name: league, current: true });
-  if (js?.response?.length) return js.response[0].league.id;
-  js = await afGet("/leagues", { country, name: league });
-  return js?.response?.[0]?.league?.id || null;
+  // 1) map tĩnh
+  const key = `${country}|${league}`;
+  if (LEAGUE_ID_MAP[key]) return LEAGUE_ID_MAP[key];
+
+  // 2) search theo tên, lọc country
+  // (một số giải đặt tên khác, ví dụ "Premier League" vs "Premier League 2024/2025")
+  const js = await afGet("/leagues", { search: league });
+  for (const row of js?.response || []) {
+    const ctry = row?.country?.name;
+    const name = row?.league?.name;
+    if (!ctry || !name) continue;
+    if (ctry.toLowerCase() === country.toLowerCase() &&
+        name.toLowerCase().includes(league.toLowerCase())) {
+      return row.league.id;
+    }
+  }
+  return null;
 }
+
 function withinHours(iso, hours) {
   const t = new Date(iso).getTime();
   const now = Date.now();
@@ -55,6 +113,7 @@ export async function GET(req) {
 
     const url = new URL(req.url);
     const hours = Math.max(1, Math.min(168, Number(url.searchParams.get("hours") || 24)));
+
     const idCache = new Map();
     const errors = [];
     const all = [];
@@ -62,7 +121,11 @@ export async function GET(req) {
     const getId = async (c,l) => {
       const k = `${c}|${l}`;
       if (idCache.has(k)) return idCache.get(k);
-      const id = await resolveLeagueId(c,l);
+      let id = LEAGUE_ID_MAP[k] || null;
+      if (!id) {
+        try { id = await resolveLeagueId(c,l); }
+        catch (e) { errors.push({ league: {country:c, league:l}, error: `resolve failed: ${String(e)}` }); }
+      }
       idCache.set(k, id);
       return id;
     };
@@ -81,7 +144,9 @@ export async function GET(req) {
             status: f.fixture?.status?.short, venue: f.fixture?.venue?.name || null,
           });
         }
-      } catch (e) { errors.push({ league: lg, error: String(e) }); }
+      } catch (e) {
+        errors.push({ league: lg, error: String(e) });
+      }
     }
 
     all.sort((a,b)=> new Date(a.dateUTC)-new Date(b.dateUTC));
