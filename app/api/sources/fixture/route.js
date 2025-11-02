@@ -44,7 +44,7 @@ async function lastNStatsInLeague(teamId, leagueId, season, n = 10) {
 export async function GET(req) {
   try {
     if (!process.env.API_FOOTBALL_KEY)
-      return Response.json({ error: "Missing API_FOOTBALL_KEY" }, { status: 500 });
+      return Response.json({ version:"2.0.0", error: "Missing API_FOOTBALL_KEY" }, { status: 500 });
 
     const { searchParams } = new URL(req.url);
     const home    = searchParams.get("home");
@@ -55,7 +55,7 @@ export async function GET(req) {
     const season  = searchParams.get("season") || inferSeason(dateISO);
 
     if (!home || !away)
-      return Response.json({ error: "home & away required" }, { status: 400 });
+      return Response.json({ version:"2.0.0", error: "home & away required" }, { status: 400 });
 
     const [homeId, awayId] = await Promise.all([teamIdByName(home), teamIdByName(away)]);
     let leagueId = null;
@@ -73,12 +73,13 @@ export async function GET(req) {
     const lamA = clamp((a.gf * h.ga) / leagueAvg, 0.05, 5.0);
 
     return Response.json({
+      version: "2.0.0",
       source: "api-football",
       home, away, season, leagueId, homeId, awayId,
       last10: { home: h, away: a },
       lambda: { home: lamH, away: lamA }
     });
   } catch (e) {
-    return Response.json({ error: String(e) }, { status: 500 });
+    return Response.json({ version:"2.0.0", error: String(e) }, { status: 500 });
   }
 }
